@@ -1,0 +1,324 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Model
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  subscriptionTier String @default("free") // free, pro, premium
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  portfolios    Portfolio[]
+  trades        Trade[]
+  watchlists    Watchlist[]
+  strategies    Strategy[]
+  aiConversations AIConversation[]
+  posts         Post[]
+  followers     Follow[] @relation("following")
+  following     Follow[] @relation("follower")
+  alerts        Alert[]
+  backtests     Backtest[]
+}
+
+// NextAuth Models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Portfolio Model
+model Portfolio {
+  id          String   @id @default(cuid())
+  name        String
+  userId      String
+  balance     Float    @default(100000) // Starting virtual balance
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  trades      Trade[]
+}
+
+// Trade Model
+model Trade {
+  id              String   @id @default(cuid())
+  portfolioId     String
+  userId          String
+  symbol          String
+  market          String   // stocks, crypto, forex
+  side            String   // buy, sell
+  type            String   // market, limit, stop, stop-limit
+  quantity        Float
+  entryPrice      Float
+  exitPrice       Float?
+  stopLoss        Float?
+  takeProfit      Float?
+  status          String   @default("open") // open, closed, cancelled
+  pnl             Float?
+  pnlPercent      Float?
+  aiSuggested     Boolean  @default(false)
+  aiConfidence    Float?
+  createdAt       DateTime @default(now())
+  closedAt        DateTime?
+
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Watchlist Model
+model Watchlist {
+  id        String   @id @default(cuid())
+  name      String
+  userId    String
+  symbols   String[] // Array of symbols
+  market    String   // stocks, crypto, forex, all
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Strategy Model (for backtesting)
+model Strategy {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  userId      String
+  code        String   @db.Text // Strategy code
+  market      String   // stocks, crypto, forex
+  timeframe   String   // 1m, 5m, 1h, 4h, 1d
+  aiGenerated Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  backtests   Backtest[]
+}
+
+// Backtest Model
+model Backtest {
+  id              String   @id @default(cuid())
+  strategyId      String
+  userId          String
+  symbol          String
+  startDate       DateTime
+  endDate         DateTime
+  initialCapital  Float
+  finalCapital    Float
+  totalTrades     Int
+  winningTrades   Int
+  losingTrades    Int
+  winRate         Float
+  profitFactor    Float
+  sharpeRatio     Float?
+  maxDrawdown     Float
+  results         Json     // Detailed results
+  createdAt       DateTime @default(now())
+
+  strategy        Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// AI Signal Model
+model AISignal {
+  id            String   @id @default(cuid())
+  symbol        String
+  market        String   // stocks, crypto, forex
+  direction     String   // bullish, bearish, neutral
+  confidence    Float
+  entryPrice    Float
+  stopLoss      Float?
+  takeProfit    Float?
+  reasoning     String   @db.Text
+  newsImpact    String?  // positive, negative, neutral
+  keyLevels     Json?    // support and resistance levels
+  timeframe     String
+  expiresAt     DateTime
+  accuracy      Float?   // Track actual accuracy
+  createdAt     DateTime @default(now())
+}
+
+// Ensemble Prediction Model (4-model tracking)
+model EnsemblePrediction {
+  id               String   @id @default(cuid())
+  symbol           String
+  timeframe        String
+  signal           String   // BUY, SELL, HOLD
+  confidence       Float
+  agreement        String   // "4/4", "3/4", etc
+  
+  // Individual model predictions
+  sonnetSignal     String
+  sonnetConfidence Float
+  deepseekSignal   String
+  deepseekConfidence Float
+  nemotronSignal   String
+  nemotronConfidence Float
+  geminiSignal     String
+  geminiConfidence Float
+  
+  // Trading levels
+  entryPrice       Float
+  stopLoss         Float
+  takeProfit1      Float
+  takeProfit2      Float?
+  riskReward       String
+  
+  // Accuracy tracking
+  outcome          String?  // WIN, LOSS, PENDING
+  actualExitPrice  Float?
+  actualPnL        Float?
+  accuracyScore    Float?   // 0-100
+  
+  // Metadata
+  tradeType        String   // SWING, INTRADAY, SCALP
+  reasoning        Json     // Full ensemble reasoning
+  warnings         Json?    // Array of warnings
+  
+  createdAt        DateTime @default(now())
+  closedAt         DateTime?
+  
+  @@index([symbol, createdAt])
+  @@index([outcome])
+}
+
+// Model Performance Tracker
+model ModelPerformance {
+  id               String   @id @default(cuid())
+  modelName        String   // sonnet, deepseek, nemotron, gemini
+  symbol           String?
+  timeframe        String?
+  
+  // Win rate stats
+  totalPredictions Int      @default(0)
+  correctPredictions Int    @default(0)
+  winRate          Float    @default(0)
+  
+  // Confidence calibration
+  avgConfidence    Float    @default(0)
+  avgAccuracy      Float    @default(0)
+  
+  // Period
+  periodStart      DateTime
+  periodEnd        DateTime
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@unique([modelName, symbol, timeframe, periodStart])
+  @@index([modelName, periodEnd])
+}
+
+// AI Conversation Model
+model AIConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  messages  Json     // Array of messages
+  context   Json?    // Current chart/market context
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Post Model (Social Features)
+model Post {
+  id          String   @id @default(cuid())
+  userId      String
+  content     String   @db.Text
+  symbol      String?
+  chart       Json?    // Chart screenshot or data
+  aiSummary   String?  @db.Text
+  likes       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comments    Comment[]
+}
+
+// Comment Model
+model Comment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+}
+
+// Follow Model
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower    User     @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+}
+
+// Alert Model
+model Alert {
+  id          String   @id @default(cuid())
+  userId      String
+  symbol      String
+  market      String
+  condition   String   // above, below, change_percent
+  targetPrice Float?
+  targetChange Float?
+  triggered   Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
